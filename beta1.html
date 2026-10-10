@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Mansion Planner</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;height:100%;background:#1a1a1f;color:#d4c5a0;font:14px system-ui,-apple-system,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+button,select{background:#2d2d38;color:#d4c5a0;border:1px solid #3d3d48;border-radius:8px;min-width:48px;min-height:48px;font-size:12px;padding:2px 6px;font-family:inherit}
+button.on{background:#4a90d9;color:#fff}
+button b{display:block;font-size:20px;font-weight:400;line-height:22px}
+#hd{display:flex;align-items:center;gap:8px;padding:4px 8px}
+#bar{flex:1;height:20px;background:#2d2d38;border-radius:10px;position:relative;overflow:hidden}
+#fill{height:100%;background:#4a90d9;width:0}
+#bt{position:absolute;inset:0;text-align:center;font-size:12px;line-height:20px;color:#fff}
+#b2{display:flex;gap:4px;padding:2px 8px;overflow-x:auto;align-items:center}
+#fl{display:flex;gap:4px}
+#hint{padding:2px 8px;font-size:13px;color:#ffd166;min-height:18px}
+#st{padding:2px 8px;font-size:12px;color:#a8a090}
+#main{flex:1;display:flex;min-height:0}
+#tools{display:flex;flex-direction:column;gap:4px;padding:4px;overflow:auto;flex:none}
+#cv,#cv *{touch-action:none}
+#cv{flex:1;background:#23232a;min-width:0;min-height:0}
+@media(max-width:700px){#main{flex-direction:column-reverse}#tools{flex-direction:row}#ttl{display:none}}
+#menu{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;justify-content:center;z-index:5}
+#menu>div{background:#1a1a1f;padding:12px;display:flex;flex-wrap:wrap;gap:8px;max-width:520px;width:100%;border-radius:12px 12px 0 0}
+#toast{position:fixed;left:10px;bottom:80px;background:#c0392b;color:#fff;padding:8px 14px;border-radius:8px;display:none;z-index:9;max-width:calc(100% - 20px);text-align:left;font-size:13px;box-shadow:0 2px 8px #0008}
+@media(max-width:700px){#toast{bottom:130px}}
+</style></head><body>
+<div id="hd"><b id="ttl">🏰 Mansion Planner</b><button id="ub">ft</button>
+<div id="bar"><div id="fill"></div><div id="bt"></div></div><button id="mb">☰</button></div>
+<div id="b2"><div id="fl"></div><button id="undo">↶</button><button id="redo">↷</button>
+<button id="zm">＋</button><button id="fit">⌖</button><button id="below">Слой ниже</button><button id="fin">✔ Закончить</button><button id="bk">↩ Точка</button><button id="rot">↻ 90°</button><button id="dv">⌫ Точка</button><button id="dp">✂ Часть</button><button id="del">🗑 Удалить</button></div>
+<div id="hint"></div><div id="st"></div>
+<div id="main"><div id="tools"></div><div id="cv"></div></div>
+<div id="menu"><div>
+<button id="png"><b>💾</b>PNG</button><button id="jd"><b>⬇️</b>JSON</button><button id="ju"><b>⬆️</b>JSON</button><button id="nw"><b>🗑</b>Новый</button>
+<button id="sg">Сетка</button><button id="ss">Снап</button><button id="sm">Размеры</button><button id="stt">Всплывашка</button>
+<select id="dt"><option value="single">Дверь: обычная</option><option value="double">Дверь: двойная</option><option value="arch">Дверь: арка</option></select>
+<select id="sd"><option value="up">Лестница: вверх</option><option value="down">Лестница: вниз</option></select>
+<div style="font-size:12px;width:100%;color:#a8a090">Клавиши: V выбор · W стена · G диагональ · D дверь · N окно · S лестница · R комната · E ластик · H рука · Пробел/правая кнопка — двигать план · Enter — закончить · Esc — отмена · Backspace — убрать точку · Q — повернуть · Del — удалить · Ctrl+Z/Y · +/− зум · 0 — показать всё</div><button id="mc" style="width:100%">Закрыть</button></div></div>
+<input type="file" id="file" accept=".json,application/json" hidden>
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/konva@9.3.6/konva.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), KEY='mansion_planner_v1', MAXFT=5000;
+let meta,floors,settings,cur=0,unit='ft',tool='select',sel=null,selSeg=null,selPt=null,below=false,RC={},pend=null,over=false;
+const cfg={door:'single',stair:'up'}, view={ox:30,oy:30,s:40}, hist=[], redo=[];
+const sn=v=>settings.snapToGrid?Math.round(v*2)/2:Math.round(v*10)/10; // шаг 0.5: 9 точек на клетку
+const mkFloor=l=>({id:'floor_'+l,level:l,name:l+' этаж',visible:true,elements:[]});
+const uid=t=>t+'_'+Math.random().toString(36).slice(2,7);
+function reset(){meta={id:uid('mansion'),name:'Особняк',unit:'ft',gridCellSize:5,maxAreaFt:MAXFT,createdAt:new Date().toISOString(),updatedAt:''};
+ floors=[mkFloor(1)];settings={theme:'dark',snapToGrid:true,showGrid:true,showMeasures:true,showToast:true};cur=0;sel=null;pend=null;hist.length=redo.length=0;}
+reset();
+function toast(m,u){if(!settings.showToast)return;const t=$('toast');t.textContent=m;t.style.background=u?'#3a5f8a':'#c0392b';t.style.display='block';
+ if(u){const b=document.createElement('button');b.textContent='↶ Вернуть';b.style.cssText='min-height:36px;margin-left:10px;min-width:auto;padding:4px 10px';b.onclick=()=>{undo();t.style.display='none';};t.append(b);}
+ clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',u?6000:2500);}
+// ---------- история и автосохранение ----------
+function save(){hist.push(JSON.stringify(floors));if(hist.length>50)hist.shift();redo.length=0;}
+function undo(){if(!hist.length)return;redo.push(JSON.stringify(floors));floors=JSON.parse(hist.pop());fixCur();changed();}
+function redoF(){if(!redo.length)return;hist.push(JSON.stringify(floors));floors=JSON.parse(redo.pop());fixCur();changed();}
+function fixCur(){if(cur>=floors.length)cur=floors.length-1;sel=null;selSeg=null;selPt=null;pend=null;}
+let tmr;function changed(){mergeWalls(floors[cur]);meta.updatedAt=new Date().toISOString();clearTimeout(tmr);tmr=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(dump()))}catch(e){}},2000);render();}
+// ---------- геометрия ----------
+const segsOf=e=>e.type==='wall'?e.points.slice(1).map((p,i)=>[e.points[i],p]):e.type==='wall_diagonal'?[[e.start,e.end]]:[];
+function distSeg(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy;let t=l?((p.x-a.x)*dx+(p.y-a.y)*dy)/l:0;t=Math.max(0,Math.min(1,t));const q={x:a.x+t*dx,y:a.y+t*dy};return{d:Math.hypot(p.x-q.x,p.y-q.y),q};}
+// рёбра клеток, закрытые осевыми стенами
+function edges(f){const E=new Set(),R=Math.round;for(const e of f.elements)for(const[a0,b0]of segsOf(e)){const a={x:R(a0.x*2),y:R(a0.y*2)},b={x:R(b0.x*2),y:R(b0.y*2)}; // координаты в полуклетках
+ if(a.y===b.y)for(let x=Math.min(a.x,b.x);x<Math.max(a.x,b.x);x++)E.add('h'+x+','+a.y);
+ else if(a.x===b.x)for(let y=Math.min(a.y,b.y);y<Math.max(a.y,b.y);y++)E.add('v'+a.x+','+y);
+ else if(Math.abs(b.x-a.x)===Math.abs(b.y-a.y)){const sx=Math.sign(b.x-a.x),sy=Math.sign(b.y-a.y),n=Math.abs(b.x-a.x); // диагональ 45°: режет клетку пополам
+  for(let i=0;i<n;i++){const x=Math.min(a.x+i*sx,a.x+(i+1)*sx),y=Math.min(a.y+i*sy,a.y+(i+1)*sy);
+   if(sx*sy>0){E.add('c'+x+','+y+',1');E.add('c'+x+','+y+',3');}else{E.add('c'+x+','+y+',0');E.add('c'+x+','+y+',2');}}}}return E;}
+// заливка клеток от точки; null если контур не замкнут
+const TRI=[[0,0,1,0],[1,0,1,1],[1,1,0,1],[0,1,0,0]],CT=[[.5,.1667],[.8333,.5],[.5,.8333],[.1667,.5]];
+const triAt=p=>{const x=Math.floor(p.x*2),y=Math.floor(p.y*2),fx=p.x*2-x,fy=p.y*2-y;return[x,y,fx>fy?(fx+fy<1?0:1):(fx+fy<1?3:2)];};
+// клетка = 4 треугольника (0=N,1=E,2=S,3=W); заливка идёт по треугольникам, площадь = число/4
+function fill(E,sx,sy,st){const key=(x,y,t)=>x+','+y+','+t,seen=new Set([key(sx,sy,st)]),q=[[sx,sy,st]];
+ for(let i=0;i<q.length;i++){const[x,y,t]=q[i];if(q.length>24000||Math.abs(x-sx)>100||Math.abs(y-sy)>100)return null;
+  const nb=[[x,y,(t+1)%4,'c'+x+','+y+','+t],[x,y,(t+3)%4,'c'+x+','+y+','+((t+3)%4)],
+   t===0?[x,y-1,2,'h'+x+','+y]:t===1?[x+1,y,3,'v'+(x+1)+','+y]:t===2?[x,y+1,0,'h'+x+','+(y+1)]:[x-1,y,1,'v'+x+','+y]];
+  for(const[nx,ny,nt,k]of nb){if(E.has(k))continue;const m=key(nx,ny,nt);if(!seen.has(m)){seen.add(m);q.push([nx,ny,nt]);}}}
+ return q;}
+// ---------- подсчёт ----------
+const fA=c=>unit==='ft'?Math.round(c*25)+' ft²':Math.round(c*2.25)+' м²';
+const fL=c=>unit==='ft'?Math.round(c*5)+' ft':(c*1.5).toFixed(1)+' м';
+function calc(){RC={};let tot=0;const per=[];
+ for(const f of floors){const E=edges(f);let a=0,pm=0,d=0,w=0,r=0;
+  for(const e of f.elements){if(e.type==='room'){const c=fill(E,e.seed.x,e.seed.y,e.seed.t|0);RC[f.id+e.id]=c;if(c){a+=c.length/16;r++;}}
+   else if(e.type==='door')d++;else if(e.type==='window')w++;
+   for(const[p,q]of segsOf(e))pm+=Math.hypot(p.x-q.x,p.y-q.y);}
+  per.push({a,pm,d,w,r});tot+=a;}
+ return{tot,per};}
+// ---------- Konva ----------
+const cv=$('cv'),stage=new Konva.Stage({container:'cv',width:300,height:300}),layer=new Konva.Layer();stage.add(layer);
+stage.on('contextmenu',e=>e.evt.preventDefault());cv.addEventListener('contextmenu',e=>e.preventDefault());
+new ResizeObserver(()=>{stage.size({width:cv.clientWidth,height:cv.clientHeight});render();}).observe(cv);
+const C={wall:'#d4c5a0',door:'#8b6f3f',win:'#5a9fd4',stair:'#a0a0a0',sel:'#ffd166',bg:'#23232a'};
+const arc=(cx,cy,r,a0,a1)=>{const o=[];for(let i=0;i<=8;i++){const t=(a0+(a1-a0)*i/8)*Math.PI/180;o.push(cx+r*Math.cos(t),cy+r*Math.sin(t));}return o;};
+const ln=(pts,col,w,x)=>new Konva.Line(Object.assign({points:pts,stroke:col,strokeWidth:w,lineCap:'round',lineJoin:'round',listening:false},x||{}));
+function drawFloor(g,f,al){
+ for(const e of f.elements)if(e.type==='room'){const c=RC[f.id+e.id];if(!c)continue;
+  g.add(new Konva.Shape({listening:false,sceneFunc(ctx){const k=ctx._context;k.save();k.globalAlpha=.15*al;k.fillStyle=e.color||'#4a90d9';k.beginPath();c.forEach(([x,y,t])=>{const P=TRI[t];k.moveTo((x+P[0])/2,(y+P[1])/2);k.lineTo((x+P[2])/2,(y+P[3])/2);k.lineTo((x+.5)/2,(y+.5)/2);k.closePath();});k.fill();k.restore();}}));
+  const cx=c.reduce((s,a)=>s+a[0]+CT[a[2]][0],0)/c.length/2,cy=c.reduce((s,a)=>s+a[1]+CT[a[2]][1],0)/c.length/2;
+  g.add(new Konva.Text({x:cx-3,y:cy-.4,width:6,align:'center',fontSize:.4,fill:sel===e.id?C.sel:C.wall,opacity:al,listening:false,text:e.name+(settings.showMeasures?'\n'+fA(c.length/16):'')}));}
+ for(const e of f.elements){
+  if(segsOf(e).length){const pts=e.type==='wall'?e.points.flatMap(p=>[p.x,p.y]):[e.start.x,e.start.y,e.end.x,e.end.y];
+   if(sel===e.id){g.add(ln(pts,C.sel,.3,{opacity:.8}));
+   if(selSeg!=null&&e.type==='wall'){const q=segsOf(e)[selSeg];if(q)g.add(ln([q[0].x,q[0].y,q[1].x,q[1].y],'#ff9f43',.36));} // выбранная часть между двумя точками
+  for(let i=0;i<pts.length;i+=2)g.add(new Konva.Circle({x:pts[i],y:pts[i+1],radius:i/2===selPt?.32:.22,fill:i/2===selPt?'#ff9f43':C.sel,stroke:'#000',strokeWidth:.04,listening:false}));}g.add(ln(pts,C.wall,.14,{opacity:al}));}}
+ for(const e of f.elements){if(!e.position)continue;const p=e.position;let gr;
+  if(e.type==='stair'){gr=new Konva.Group({x:p.x+.5,y:p.y+1,rotation:e.rotation||0,listening:false});
+   gr.add(new Konva.Rect({x:-.5,y:-1,width:1,height:2,fill:'rgba(160,160,160,.2)',stroke:C.stair,strokeWidth:.06}));
+   for(let i=1;i<5;i++)gr.add(ln([-.5,-1+i*.4,.5,-1+i*.4],C.stair,.04));
+   const u=e.direction==='up';gr.add(ln(u?[0,.7,0,-.7,-.2,-.45,0,-.7,.2,-.45]:[0,-.7,0,.7,-.2,.45,0,.7,.2,.45],C.sel,.06));
+   gr.add(new Konva.Text({x:-.5,y:-1.35,width:1,align:'center',fontSize:.3,fill:C.stair,text:(u?'↑':'↓')+e.toFloorLevel}));
+   if(sel===e.id)gr.add(new Konva.Rect({x:-.6,y:-1.1,width:1.2,height:2.2,stroke:C.sel,strokeWidth:.06,dash:[.2,.1]}));}
+  else{gr=new Konva.Group({x:p.x,y:p.y,rotation:e.rotation||0,listening:false});
+   gr.add(new Konva.Rect({x:-.5,y:-.12,width:1,height:.24,fill:C.bg}));
+   if(e.type==='window'){gr.add(ln([-.5,-.07,.5,-.07],C.win,.05));gr.add(ln([-.5,.07,.5,.07],C.win,.05));gr.add(ln([-.5,-.12,-.5,.12],C.win,.05));gr.add(ln([.5,-.12,.5,.12],C.win,.05));}
+   else if(e.doorType==='double'){gr.add(ln([-.5,0,-.5,-.5],C.door,.06));gr.add(ln(arc(-.5,0,.5,-90,0),C.door,.03));gr.add(ln([.5,0,.5,-.5],C.door,.06));gr.add(ln(arc(.5,0,.5,-90,-180),C.door,.03));}
+   else if(e.doorType==='arch'){gr.add(ln([-.5,0,.5,0],C.door,.04,{dash:[.1,.1]}));gr.add(ln([-.5,-.12,-.5,.12],C.door,.1));gr.add(ln([.5,-.12,.5,.12],C.door,.1));}
+   else{gr.add(ln([-.5,0,-.5,-1],C.door,.06));gr.add(ln(arc(-.5,0,1,-90,0),C.door,.03));}
+   if(sel===e.id)gr.add(new Konva.Circle({radius:.7,stroke:C.sel,strokeWidth:.06,dash:[.2,.1]}));}
+  gr.opacity(al);g.add(gr);}}
+function render(){
+ if(!layer)return;layer.destroyChildren();
+ layer.add(new Konva.Rect({width:stage.width(),height:stage.height(),fill:C.bg,listening:false}));
+ const{tot,per}=calc();
+ const g=new Konva.Group({x:view.ox,y:view.oy,scaleX:view.s,scaleY:view.s,listening:false});layer.add(g);
+ if(settings.showGrid)g.add(new Konva.Shape({listening:false,sceneFunc(ctx){const k=ctx._context,s=view.s,w=stage.width(),h=stage.height();
+  const x0=Math.floor(-view.ox/s),x1=Math.ceil((w-view.ox)/s),y0=Math.floor(-view.oy/s),y1=Math.ceil((h-view.oy)/s);k.lineWidth=1/s;
+  for(let x=x0;x<=x1;x++){k.beginPath();k.strokeStyle=x%5?'#2f2f38':'#3d3d48';k.moveTo(x,y0);k.lineTo(x,y1);k.stroke();}
+  for(let y=y0;y<=y1;y++){k.beginPath();k.strokeStyle=y%5?'#2f2f38':'#3d3d48';k.moveTo(x0,y);k.lineTo(x1,y);k.stroke();}
+  if(s>=28&&settings.snapToGrid){k.fillStyle='#4f4f5e';const d=2.4/s; // середины сторон и центры клеток
+   for(let x=x0;x<x1;x++)for(let y=y0;y<y1;y++){k.fillRect(x+.5-d/2,y-d/2,d,d);k.fillRect(x-d/2,y+.5-d/2,d,d);k.fillRect(x+.5-d/2,y+.5-d/2,d,d);}}}}));
+ if(below&&cur>0)drawFloor(g,floors[cur-1],.25);
+ drawFloor(g,floors[cur],1);
+ if(pend&&pend.pts.length){const pts=pend.pts.concat(pend.cur?[pend.cur]:[]);g.add(ln(pts.flatMap(p=>[p.x,p.y]),C.sel,.1,{dash:[.2,.15]}));
+  if(pend.cur&&settings.showMeasures){const a=pend.pts[pend.pts.length-1],b=pend.cur;g.add(new Konva.Text({x:(a.x+b.x)/2,y:(a.y+b.y)/2-.5,fontSize:.4,fill:C.sel,text:fL(Math.hypot(a.x-b.x,a.y-b.y))}));}}
+ if(hl){const R='#e74c3c';if(segsOf(hl).length)g.add(ln(hl.type==='wall'?hl.points.flatMap(q=>[q.x,q.y]):[hl.start.x,hl.start.y,hl.end.x,hl.end.y],R,.3,{opacity:.8}));
+  else if(hl.position)g.add(new Konva.Circle({x:hl.position.x+(hl.type==='stair'?.5:0),y:hl.position.y+(hl.type==='stair'?1:0),radius:.8,stroke:R,strokeWidth:.1,listening:false}));}
+ if(mark)g.add(new Konva.Circle({x:mark.x,y:mark.y,radius:.14,fill:C.sel,listening:false}));
+ if(ghost){const gh=new Konva.Group({x:ghost.x,y:ghost.y,rotation:ghost.rot,listening:false});gh.add(new Konva.Rect({x:-ghost.w/2,y:-ghost.h/2,width:ghost.w,height:ghost.h,stroke:C.sel,strokeWidth:.06,dash:[.15,.1]}));g.add(gh);}
+ layer.draw();
+ // UI: прогресс и статистика
+ const lim=unit==='ft'?'5000 ft²':'465 м²',ft=tot*25;
+ $('fill').style.width=Math.min(100,ft/MAXFT*100)+'%';$('fill').style.background=ft>MAXFT?'#c0392b':'#4a90d9';
+ $('bt').textContent=fA(tot)+' / '+lim;
+ if(ft>MAXFT&&!over)toast('⚠ Превышен лимит площади '+lim);over=ft>MAXFT;
+ const p=per[cur];$('st').textContent=`Этаж ${cur+1}: ${fA(p.a)} | Всего: ${fA(tot)} из ${lim} | Стены: ${fL(p.pm)} | 🚪${p.d} 🪟${p.w} комнат: ${p.r}`;
+ $('fl').innerHTML='';floors.forEach((f,i)=>{const b=document.createElement('button');b.textContent=i+1;b.className=i===cur?'on':'';b.onclick=()=>{finish();cur=i;sel=null;render();};$('fl').appendChild(b);});
+ const ad=document.createElement('button');ad.textContent='+';ad.onclick=addFloor;$('fl').appendChild(ad);
+ $('below').className=below?'on':'';$('ub').textContent=unit==='ft'?'ft → m':'m → ft';
+ $('sg').className=settings.showGrid?'on':'';$('ss').className=settings.snapToGrid?'on':'';$('sm').className=settings.showMeasures?'on':'';$('stt').className=settings.showToast?'on':'';
+ $('fin').style.display=pend&&pend.pts.length>1?'':'none';$('bk').style.display=pend?'':'none';
+ $('hint').textContent=pend?'Тап в ту же точку или Enter — закончить, Backspace — убрать точку':HINTS[tool];
+ $('rot').style.display=$('del').style.display=sel?'':'none';$('dp').style.display=sel&&selSeg!=null?'':'none';$('dv').style.display=sel&&selPt!=null?'':'none';
+}
+// ---------- инструменты ----------
+const TOOLS=[['select','☝','Выбор'],['wall','▬','Стена'],['diag','╱','Диагональ'],['door','🚪','Дверь'],['window','▭','Окно'],['stair','🪜','Лестница'],['room','⬚','Комната'],['eraser','🧽','Ластик'],['hand','✋','Рука']];
+TOOLS.forEach(([id,ic,nm])=>{const b=document.createElement('button');b.id='t_'+id;b.innerHTML='<b>'+ic+'</b>'+nm;b.onclick=()=>{finish();tool=id;pend=null;sel=null;mark=ghost=hl=null;cv.style.cursor=id==='hand'?'grab':id==='select'?'default':'crosshair';document.querySelectorAll('#tools button').forEach(x=>x.className='');b.className='on';render();};$('tools').appendChild(b);});
+$('t_select').className='on';
+const HINTS={select:'Тап — выбрать. Двойной тап по стене — добавить точку. Тап по выбранной стене — выбрать часть (✂), тап по жёлтой точке — выбрать точку (⌫). Концы стен при стыковке объединяются',wall:'Нажмите и ведите до конца стены, либо тапайте точки. Точки привязки: углы, середины сторон и центр клетки',diag:'Как стена, но углы кратны 45°',door:'Ведите по стене — рамка покажет место, отпустите — дверь встанет',window:'Ведите по стене — рамка покажет место, отпустите — окно встанет',stair:'Тапните место для лестницы',room:'Тапните внутри замкнутого контура стен',eraser:'Прижмите палец к объекту — он станет красным. Хотите передумать — уведите палец в сторону и отпустите',hand:'Тяните, чтобы двигать план (щипок — зум)'};
+function addFloor(){if(floors.length>=5)return toast('Максимум 5 этажей');finish();save();const n=floors.length+1,f=mkFloor(n);
+ if(confirm('Скопировать текущий этаж как шаблон?'))f.elements=JSON.parse(JSON.stringify(floors[cur].elements.filter(e=>e.type!=='stair')));
+ floors.push(f);cur=n-1;sel=null;changed();}
+function finish(){if(pend&&tool==='wall'&&pend.pts.length>1){save();floors[cur].elements.push({id:uid('wall'),type:'wall',points:pend.pts});changed();}pend=null;}
+function endpt(a,p,mode){if(!a)return{x:sn(p.x),y:sn(p.y)};const dx=p.x-a.x,dy=p.y-a.y;
+ if(mode==='wall')return Math.abs(dx)>=Math.abs(dy)?{x:sn(p.x),y:a.y}:{x:a.x,y:sn(p.y)};
+ const ang=Math.round(Math.atan2(dy,dx)/(Math.PI/4)),ux=Math.round(Math.cos(ang*Math.PI/4)),uy=Math.round(Math.sin(ang*Math.PI/4));
+ const n=Math.max(.5,Math.round(Math.hypot(dx,dy)/(ux&&uy?Math.SQRT2:1)*2)/2);return{x:a.x+ux*n,y:a.y+uy*n};}
+let hz='in',hseg=null; // зона захвата: 'in' — на стене, 'out' — рядом со стеной
+const r1=v=>Math.round(v*10)/10;
+function hit(p,tp=24){const L=floors[cur].elements;
+ for(const e of L)if(e.position){const cx=e.position.x+(e.type==='stair'?.5:0),cy=e.position.y+(e.type==='stair'?1:0);if(Math.hypot(cx-p.x,cy-p.y)<(e.type==='stair'?1.1:.8))return e;}
+ let bw=null;for(const e of L)for(const sg of segsOf(e)){const d=distSeg(p,sg[0],sg[1]).d*view.s; // расстояние в пикселях: ~24px ≈ 6 мм на экране
+  if(d<=tp&&(!bw||d<bw.d))bw={e,d,sg};}
+ if(bw){hz=bw.d<=7?'in':'out';hseg=bw.sg;return bw.e;}
+ for(const e of L)if(e.type==='room'){const c=RC[floors[cur].id+e.id];const T=triAt(p);if(c&&c.some(a=>a[0]===T[0]&&a[1]===T[1]&&a[2]===T[2]))return e;}
+ return null;}
+const verts=()=>floors[cur].elements.flatMap(e=>e.type==='wall'?e.points:e.type==='wall_diagonal'?[e.start,e.end]:[]);
+const coin=v=>verts().filter(w=>Math.abs(w.x-v.x)<.01&&Math.abs(w.y-v.y)<.01); // все вершины в той же точке — контур не рвётся
+// Стены со совпавшими концами сливаются в одну ломаную (диагонали тоже); замкнутые контуры не трогаем
+function mergeWalls(f){const eq=(a,b)=>Math.abs(a.x-b.x)<.01&&Math.abs(a.y-b.y)<.01,L=c=>c.pts[c.pts.length-1],closed=c=>c.pts.length>2&&eq(c.pts[0],L(c));
+ const ch=f.elements.filter(e=>e.type==='wall'||e.type==='wall_diagonal').map(e=>({id:e.id,el:e,ids:[e.id],pts:e.type==='wall'?e.points:[e.start,e.end]}));
+ for(let again=true;again;){again=false;
+  loop:for(let i=0;i<ch.length;i++)for(let j=i+1;j<ch.length;j++){const A=ch[i],B=ch[j];if(closed(A)||closed(B))continue;
+   const a0=A.pts[0],a1=L(A),b0=B.pts[0],b1=L(B);let P=null;
+   if(eq(a1,b0))P=A.pts.concat(B.pts.slice(1));else if(eq(a1,b1))P=A.pts.concat(B.pts.slice(0,-1).reverse());
+   else if(eq(a0,b0))P=A.pts.slice().reverse().concat(B.pts.slice(1));else if(eq(a0,b1))P=B.pts.concat(A.pts.slice(1));
+   if(!P)continue;A.pts=P.map(q=>({x:q.x,y:q.y}));A.merged=true;A.ids.push(...B.ids);ch.splice(j,1);again=true;break loop;}}
+ for(const c of ch){if(!c.merged)continue;
+  f.elements.splice(f.elements.indexOf(c.el),1,{id:c.id,type:'wall',points:c.pts});
+  c.ids.slice(1).forEach(id=>{const k=f.elements.findIndex(x=>x.id===id);if(k>=0)f.elements.splice(k,1);});
+  f.elements.forEach(r=>{if(r.onWallId&&c.ids.includes(r.onWallId))r.onWallId=c.id;});
+  if(c.ids.includes(sel)){sel=c.id;selSeg=null;selPt=null;}}}
+const segAt=(e,p)=>{let bi=0,bd=1e9;segsOf(e).forEach(([a,b],i)=>{const d=distSeg(p,a,b).d;if(d<bd){bd=d;bi=i;}});return bi;};
+// переносим двери/окна на тот кусок стены, к которому они ближе
+function rehome(id,els){floors[cur].elements.forEach(r=>{if(r.onWallId!==id)return;let best=null;
+ els.forEach(w=>segsOf(w).forEach(([a,b])=>{const d=distSeg(r.position,a,b).d;if(!best||d<best.d)best={w,d};}));if(best)r.onWallId=best.w.id;});}
+// тап без перетаскивания: двойной — добавить точку, повторный по выбранной стене — выбрать часть
+function tapSel(d,p){if(d.pt){selPt=d.pt.k;selSeg=null;render();return;}const e=d.tap||d.el;if(!e||!segsOf(e).length)return;const now=Date.now();
+ if(lastTap.id===e.id&&now-lastTap.t<450&&Math.hypot(p.x-lastTap.x,p.y-lastTap.y)<.7){lastTap={id:null,t:0};addPoint(e,p);return;}
+ lastTap={id:e.id,t:now,x:p.x,y:p.y};
+ if(d.was&&e.type==='wall'&&e.points.length>2){selSeg=segAt(e,p);selPt=null;render();}}
+const gcd=(a,b)=>b?gcd(b,a%b):a;
+// узлы сетки (шаг 0.5), лежащие ТОЧНО на отрезке a–b, берём ближайший к точке q — работает для любого наклона
+function latticeOn(a,b,q){const ok=v=>Math.abs(v*2-Math.round(v*2))<1e-6;if(![a.x,a.y,b.x,b.y].every(ok))return null;
+ const dx=Math.round((b.x-a.x)*2),dy=Math.round((b.y-a.y)*2),g=gcd(Math.abs(dx),Math.abs(dy));if(g<2)return null;
+ let best=null;for(let k=1;k<g;k++){const x=a.x+dx/g*k/2,y=a.y+dy/g*k/2,d=Math.hypot(x-q.x,y-q.y);if(!best||d<best.d)best={x,y,d};}return best;}
+function addPoint(e,p){const si=segAt(e,p),[a,b]=segsOf(e)[si],r=distSeg(p,a,b).q;let pt;
+ if(!settings.snapToGrid)pt={x:Math.round(r.x*10)/10,y:Math.round(r.y*10)/10};
+ else pt=latticeOn(a,b,r)||{x:Math.round(r.x*2)/2,y:Math.round(r.y*2)/2}; // узел сетки на самой стене; если таких нет — ближайший узел
+ const{x,y}=pt,near=(u,v)=>Math.abs(u.x-v.x)<.05&&Math.abs(u.y-v.y)<.05;
+ if(near(pt,a)||near(pt,b))return toast('Слишком близко к углу');
+ save();
+ if(e.type==='wall')e.points.splice(si+1,0,{x,y});
+ else{const ne={id:uid('wall_diag'),type:'wall_diagonal',start:{x,y},end:{...e.end}};e.end={x,y};floors[cur].elements.push(ne);rehome(e.id,[e,ne]);}
+ selSeg=null;selPt=null;changed();toast('Точка добавлена',1);}
+function remove(e){save();const L=floors[cur].elements;floors[cur].elements=L.filter(x=>x.id!==e.id&&x.onWallId!==e.id);sel=null;changed();toast('Удалено',1);}
+function wallSpot(p){let best=null;
+ for(const e of floors[cur].elements)for(const[a,b]of segsOf(e)){const r=distSeg(p,a,b);if(r.d<.7&&(!best||r.d<best.d))best={...r,a,b,e};}
+ if(!best)return null;const{a,b,q}=best,pos={x:q.x,y:q.y};
+ const rot=Math.round(((Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI)%180+180)%180*10)/10;
+ if(a.y===b.y)pos.x=Math.floor(q.x)+.5;else if(a.x===b.x)pos.y=Math.floor(q.y)+.5;
+ return{pos,rot,e:best.e};}
+function onWall(p,type){const sp=wallSpot(p);if(!sp)return toast('Тапните по стене');
+ save();const el={id:uid(type),type,position:sp.pos,rotation:sp.rot,onWallId:sp.e.id};
+ if(type==='door')el.doorType=cfg.door;else el.windowType='normal';
+ floors[cur].elements.push(el);changed();}
+// маркер привязки и «призрак» объекта под курсором/пальцем
+function hover(p){mark=ghost=hl=null;
+ if(tool==='wall'||tool==='diag'){const a=pend&&pend.pts[pend.pts.length-1];mark=a?endpt(a,p,tool==='wall'?'wall':'diag'):{x:sn(p.x),y:sn(p.y)};if(a)pend.cur=mark;}
+ else if(tool==='door'||tool==='window'){const sp=wallSpot(p);if(sp)ghost={x:sp.pos.x,y:sp.pos.y,rot:sp.rot,w:1,h:.4};}
+ else if(tool==='eraser')hl=hit(p,14);
+ else if(tool==='stair')ghost={x:Math.round(p.x-.5)+.5,y:Math.round(p.y-1)+1,rot:0,w:1,h:2};}
+function act(p){ // действие по отпусканию пальца
+ const f=floors[cur];
+ if(tool==='wall'||tool==='diag'){
+  const m=tool==='wall'?'wall':'diag';if(!pend)pend={pts:[],cur:null};
+  const last=pend.pts[pend.pts.length-1],q=endpt(last,p,m);
+  if(last&&q.x===last.x&&q.y===last.y){tool==='wall'?finish():pend=null;return render();} // тап в ту же точку = конец
+  if(m==='wall'){pend.pts.push(q);const f0=pend.pts[0];if(pend.pts.length>2&&q.x===f0.x&&q.y===f0.y)finish();}
+  else if(last){save();f.elements.push({id:uid('wall_diag'),type:'wall_diagonal',start:last,end:q});pend.pts=[q];changed();return;}
+  else pend.pts=[q];
+  pend.cur=null;render();}
+ else if(tool==='door'||tool==='window')onWall(p,tool);
+ else if(tool==='stair'){save();f.elements.push({id:uid('stair'),type:'stair',position:{x:Math.round(p.x-.5),y:Math.round(p.y-1)},rotation:0,direction:cfg.stair,toFloorLevel:cfg.stair==='up'?f.level+1:f.level-1});changed();}
+ else if(tool==='room'){const T=triAt(p),c=fill(edges(f),T[0],T[1],T[2]);
+  if(!c)return toast('Контур не замкнут');
+  const ex=f.elements.find(e=>e.type==='room'&&(RC[f.id+e.id]||[]).some(a=>a[0]===T[0]&&a[1]===T[1]&&a[2]===T[2]));
+  const nm=prompt('Название комнаты',ex?ex.name:'Комната');if(nm===null)return;
+  save();if(ex)ex.name=nm;else f.elements.push({id:uid('room'),type:'room',name:nm,seed:{x:T[0],y:T[1],t:T[2],r:2},polygon:[],color:'#4a90d9'});changed();}
+ else if(tool==='eraser'){const e=hit(p,14);if(e)remove(e);}}
+// ---------- указатели: мышь, тач, pinch ----------
+const ptrs=new Map();let gest=null,panS=null,drag=null,lastTap={id:null,t:0},space=false,mark=null,ghost=null,hl=null;
+const W=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left-view.ox)/view.s,y:(e.clientY-r.top-view.oy)/view.s};};
+const rel=e=>{const r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};};
+function two(){const[a,b]=[...ptrs.values()];return{d:Math.hypot(a.x-b.x,a.y-b.y)||1,m:{x:(a.x+b.x)/2,y:(a.y+b.y)/2}};}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();try{cv.setPointerCapture(e.pointerId)}catch(_){}
+ ptrs.set(e.pointerId,rel(e));
+ if(ptrs.size===2){const t=two();gest={d:t.d,m:t.m,v:{...view}};drag=null;panS=null;if(pend)pend.cur=null;mark=ghost=hl=null;render();return;}
+ if(ptrs.size>2||gest)return;
+ // правая/средняя кнопка, пробел или «рука» — двигаем план
+ if(e.button===1||e.button===2||space||tool==='hand'){panS={x:e.clientX,y:e.clientY,ox:view.ox,oy:view.oy};cv.style.cursor='grabbing';return;}
+ const p=W(e);
+ if(tool==='select'){
+  const so=floors[cur].elements.find(x=>x.id===sel);
+  if(so&&segsOf(so).length){const vs=so.type==='wall'?so.points:[so.start,so.end],v=vs.find(v=>Math.hypot(v.x-p.x,v.y-p.y)<.6);
+   if(v){drag={vs:coin(v),last:{x:sn(p.x),y:sn(p.y)},saved:false,pt:{e:so,k:vs.indexOf(v)}};return;}}
+  const el=hit(p),prev=sel;sel=el?el.id:null;if(sel!==prev){selSeg=null;selPt=null;}drag=null;
+  if(el){const rid=floors[cur].elements.filter(x=>x.onWallId===el.id);
+   if(segsOf(el).length&&hz==='out'){const[a,b]=hseg; // растягиваем только эту часть: соседние стены тянутся следом
+    drag={vs:[...new Set([...coin(a),...coin(b)])],last:{x:sn(p.x),y:sn(p.y)},saved:false,tap:el,was:prev===el.id,lock:a.y===b.y?'y':a.x===b.x?'x':null,riders:rid.filter(r=>distSeg(r.position,a,b).d<.7)};}
+   else drag={el,last:{x:sn(p.x),y:sn(p.y)},saved:false,was:prev===el.id,riders:rid};}
+  render();}
+ else{ // стена: точка старта ставится сразу при нажатии, можно вести до конца или тапать по точкам
+  if((tool==='wall'||tool==='diag')&&!pend)pend={pts:[{x:sn(p.x),y:sn(p.y)}],cur:null,fresh:true};
+  hover(p);render();}
+},{passive:false});
+cv.addEventListener('pointermove',e=>{
+ if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,rel(e));
+ if(gest&&ptrs.size>=2){const t=two(),s=Math.max(12,Math.min(120,gest.v.s*t.d/gest.d)),wx=(gest.m.x-gest.v.ox)/gest.v.s,wy=(gest.m.y-gest.v.oy)/gest.v.s;
+  view.s=s;view.ox=t.m.x-wx*s;view.oy=t.m.y-wy*s;return render();}
+ if(gest)return;const p=W(e);
+ if(panS&&ptrs.size){view.ox=panS.ox+e.clientX-panS.x;view.oy=panS.oy+e.clientY-panS.y;return render();}
+ if(drag){const q={x:sn(p.x),y:sn(p.y)};
+  let dx=q.x-drag.last.x,dy=q.y-drag.last.y;if(drag.lock==='y')dx=0;if(drag.lock==='x')dy=0; // ровная стена тянется только поперёк
+  if(dx||dy){if(!drag.saved){hist.push(JSON.stringify(floors));redo.length=0;drag.saved=true;}
+   if(drag.vs)drag.vs.forEach(v=>{v.x=sn(v.x+dx);v.y=sn(v.y+dy);});
+   else{const o=drag.el;[o.points,[o.start],[o.end],[o.position]].forEach(a=>a&&a.forEach(pt=>{if(pt){pt.x+=dx;pt.y+=dy;}}));if(o.seed){o.seed.x+=Math.round(dx*2);o.seed.y+=Math.round(dy*2);}
+   if(o.points||o.start)[o.points,[o.start],[o.end]].forEach(a=>a&&a.forEach(pt=>{if(pt){pt.x=sn(pt.x);pt.y=sn(pt.y);}}));}
+   (drag.riders||[]).forEach(r=>{r.position.x=r1(r.position.x+dx);r.position.y=r1(r.position.y+dy);}); // двери и окна едут со стеной
+   drag.last=q;render();}return;}
+ if(tool!=='select'&&tool!=='hand'){hover(p);render();}
+});
+function up(e){const had=ptrs.has(e.pointerId);ptrs.delete(e.pointerId);
+ if(gest){if(!ptrs.size)gest=null;return;}
+ if(!had)return;
+ if(panS){panS=null;cv.style.cursor=space?'grab':tool==='hand'?'grab':tool==='select'?'default':'crosshair';return;}
+ if(drag){const d=drag;drag=null;if(d.saved)changed();else tapSel(d,W(e));return;}
+ if(tool==='select'||tool==='hand')return;
+ const p=W(e);
+ if(pend&&pend.fresh){pend.fresh=false;const a=pend.pts[0],q=endpt(a,p,tool==='wall'?'wall':'diag');if(q.x===a.x&&q.y===a.y){render();return;}} // простой тап = только старт
+ mark=ghost=hl=null;act(p);if(navigator.vibrate)navigator.vibrate(8);}
+cv.addEventListener('pointerup',up);
+cv.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);if(!ptrs.size)gest=null;panS=null;drag=null;});
+cv.addEventListener('wheel',e=>{e.preventDefault();const m=rel(e),wx=(m.x-view.ox)/view.s,wy=(m.y-view.oy)/view.s;
+ view.s=Math.max(12,Math.min(120,view.s*(e.deltaY<0?1.1:1/1.1)));view.ox=m.x-wx*view.s;view.oy=m.y-wy*view.s;render();},{passive:false});
+// ---------- кнопки, файлы ----------
+function dump(){const fl=JSON.parse(JSON.stringify(floors));
+ fl.forEach((f,i)=>f.elements.forEach(e=>{if(e.type!=='room')return;const c=RC[floors[i].id+e.id];
+  if(c&&c.length){const xs=c.map(a=>a[0]),ys=c.map(a=>a[1]),x0=Math.min(...xs)/2,x1=(Math.max(...xs)+1)/2,y0=Math.min(...ys)/2,y1=(Math.max(...ys)+1)/2;e.polygon=[{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}];}e.color=e.color||'#4a90d9';}));
+ return{version:'1.0',meta:{...meta,unit,updatedAt:new Date().toISOString()},floors:fl,settings};}
+function load(o){if(!o||!Array.isArray(o.floors)||!o.floors.length)throw 0;
+ floors=o.floors.slice(0,5);floors.forEach(f=>f.elements.forEach(e=>{if(e.type==='room'&&!e.seed){const xs=e.polygon.map(p=>p.x),ys=e.polygon.map(p=>p.y);e.seed={x:Math.floor((Math.min(...xs)+Math.max(...xs))/2),y:Math.floor((Math.min(...ys)+Math.max(...ys))/2)};}}));
+ floors.forEach(f=>f.elements.forEach(e=>{if(e.type==='room'&&e.seed&&e.seed.r!==2){const t=e.seed.t|0;e.seed={x:2*e.seed.x+(t===1?1:0),y:2*e.seed.y+(t===2?1:0),t,r:2};}}));
+ meta=Object.assign(meta,o.meta);Object.assign(settings,o.settings);unit=meta.unit==='m'?'m':'ft';cur=0;sel=null;pend=null;hist.length=redo.length=0;render();}
+function dl(href,name){const a=document.createElement('a');a.href=href;a.download=name;document.body.appendChild(a);a.click();a.remove();}
+$('png').onclick=()=>{sel=null;render();dl(stage.toDataURL({pixelRatio:2}),'mansion_'+new Date().toISOString().slice(0,10)+'.png');};
+$('jd').onclick=()=>{calc();const u=URL.createObjectURL(new Blob([JSON.stringify(dump(),null,1)],{type:'application/json'}));dl(u,'mansion.json');setTimeout(()=>URL.revokeObjectURL(u),2000);};
+$('ju').onclick=()=>$('file').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{load(JSON.parse(r.result));$('menu').style.display='none';toast('План загружен');}catch(_){toast('Неверный JSON');}};r.readAsText(f);e.target.value='';};
+$('nw').onclick=()=>{if(confirm('Очистить весь план?')){reset();$('menu').style.display='none';render();}};
+$('mb').onclick=()=>$('menu').style.display='flex';$('mc').onclick=()=>$('menu').style.display='none';
+$('ub').onclick=()=>{unit=unit==='ft'?'m':'ft';render();};
+$('undo').onclick=undo;$('redo').onclick=redoF;$('below').onclick=()=>{below=!below;render();};$('dv').onclick=()=>{const f=floors[cur],e=f.elements.find(x=>x.id===sel);if(!e||selPt==null)return;
+ if(e.type!=='wall'){remove(e);return;} // у одиночной диагонали убрать точку = убрать стену
+ save();const P=e.points,eq=(a,b)=>Math.abs(a.x-b.x)<.01&&Math.abs(a.y-b.y)<.01;let np;
+ if(P.length>2&&eq(P[0],P[P.length-1])){const U=P.slice(0,-1);U.splice(selPt%U.length,1);np=U.length>2?U.concat([{...U[0]}]):U;} // замкнутый контур остаётся замкнутым
+ else{np=P.slice();np.splice(selPt,1);} // край — укорачиваем, середина — соседи соединяются
+ if(np.length<2)f.elements=f.elements.filter(x=>x.id!==e.id&&x.onWallId!==e.id);
+ else{e.points=np;f.elements=f.elements.filter(r=>r.onWallId!==e.id||segsOf(e).some(([a,b])=>distSeg(r.position,a,b).d<.7));}
+ if(np.length<2)sel=null;selSeg=null;selPt=null;changed();toast('Точка удалена',1);};
+$('dp').onclick=()=>{const f=floors[cur],e=f.elements.find(x=>x.id===sel);if(!e||selSeg==null||e.type!=='wall')return;
+ save();const[a,b]=segsOf(e)[selSeg],P=e.points;
+ f.elements=f.elements.filter(r=>!(r.onWallId===e.id&&distSeg(r.position,a,b).d<.7)); // двери на удалённой части уходят с ней
+ const parts=[P.slice(0,selSeg+1),P.slice(selSeg+1)].filter(x=>x.length>1).map((pts,i)=>({id:i?uid('wall'):e.id,type:'wall',points:pts}));
+ f.elements.splice(f.elements.indexOf(e),1,...parts);rehome(e.id,parts);
+ sel=null;selSeg=null;selPt=null;changed();toast('Часть удалена',1);};
+$('fin').onclick=()=>{finish();render();};
+$('rot').onclick=()=>{const e=floors[cur].elements.find(x=>x.id===sel);if(e&&e.type!=='room'&&e.position){save();e.rotation=((e.rotation||0)+90)%360;changed();}};
+$('del').onclick=()=>{const e=floors[cur].elements.find(x=>x.id===sel);if(e)remove(e);};
+$('sg').onclick=()=>{settings.showGrid=!settings.showGrid;render();};$('ss').onclick=()=>{settings.snapToGrid=!settings.snapToGrid;render();};$('sm').onclick=()=>{settings.showMeasures=!settings.showMeasures;render();};$('stt').onclick=()=>{settings.showToast=!settings.showToast;if(!settings.showToast)$('toast').style.display='none';render();};
+$('dt').onchange=e=>cfg.door=e.target.value;$('sd').onchange=e=>cfg.stair=e.target.value;
+// ---------- зум, клавиатура ----------
+function zoomBy(k){const wx=(cv.clientWidth/2-view.ox)/view.s,wy=(cv.clientHeight/2-view.oy)/view.s;view.s=Math.max(12,Math.min(120,view.s*k));view.ox=cv.clientWidth/2-wx*view.s;view.oy=cv.clientHeight/2-wy*view.s;render();}
+function fit(){const pts=[];floors[cur].elements.forEach(e=>{segsOf(e).forEach(([a,b])=>pts.push(a,b));if(e.position)pts.push(e.position);});
+ if(!pts.length){view.s=40;view.ox=30;view.oy=30;return render();}
+ const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),x0=Math.min(...xs)-1,x1=Math.max(...xs)+2,y0=Math.min(...ys)-1,y1=Math.max(...ys)+2;
+ view.s=Math.max(12,Math.min(80,cv.clientWidth/(x1-x0),cv.clientHeight/(y1-y0)));view.ox=(cv.clientWidth-(x1-x0)*view.s)/2-x0*view.s;view.oy=(cv.clientHeight-(y1-y0)*view.s)/2-y0*view.s;render();}
+$('zm').onclick=()=>zoomBy(1.25);$('fit').onclick=fit;
+$('bk').onclick=()=>{if(pend&&pend.pts.length>1){pend.pts.pop();pend.cur=null;}else pend=null;render();};
+const KT={KeyV:'select',KeyW:'wall',KeyG:'diag',KeyD:'door',KeyN:'window',KeyS:'stair',KeyR:'room',KeyE:'eraser',KeyH:'hand'}; // по коду клавиши — работает и в русской раскладке
+addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;const c=e.code,k=e.ctrlKey||e.metaKey;
+ if(c==='Space'){space=true;cv.style.cursor='grab';e.preventDefault();}
+ else if(k&&c==='KeyZ'){e.preventDefault();e.shiftKey?redoF():undo();}
+ else if(k&&c==='KeyY'){e.preventDefault();redoF();}
+ else if(c==='Enter'){finish();render();}
+ else if(c==='Escape'){pend=null;sel=null;render();}
+ else if(c==='Backspace'&&pend){e.preventDefault();$('bk').onclick();}
+ else if(c==='Delete'||c==='Backspace')(selPt!=null?$('dv'):selSeg!=null?$('dp'):$('del')).onclick();
+ else if(c==='Equal'||c==='NumpadAdd')zoomBy(1.25);
+ else if(c==='Minus'||c==='NumpadSubtract')zoomBy(.8);
+ else if(c==='Digit0')fit();
+ else if(!k&&c==='KeyQ')$('rot').onclick();
+ else if(!k&&KT[c])$('t_'+KT[c]).click();});
+addEventListener('keyup',e=>{if(e.code==='Space'){space=false;cv.style.cursor='';}});
+try{const s=localStorage.getItem(KEY);if(s&&confirm('Восстановить сохранённый план?'))load(JSON.parse(s));}catch(_){}
+render();
+</script></body></html>
